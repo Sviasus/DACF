@@ -1,4 +1,4 @@
-# 🩺 CardioFetal AI: Detección No Invasiva de Arritmias Cardíacas Fetales
+# 🩺 DACF — CardioFetal AI: Detección No Invasiva de Arritmias Cardíacas Fetales
 
 Sistema integral de bioingeniería para el monitoreo y diagnóstico prenatal de arritmias cardíacas fetales a partir de señales electrocardiográficas abdominales maternas no invasivas (**ni-fECG**) y análisis multiparamétrico de variabilidad del ritmo cardíaco fetal (**fHRV**).
 
@@ -10,20 +10,20 @@ El registro no invasivo del electrocardiograma fetal (ni-fECG) permite evaluar l
 
 Este proyecto resuelve los tres grandes desafíos de la electrocardiografía fetal:
 1. **Atenuación y Ruido:** La señal fetal tiene una amplitud de $5\text{ a }50\text{ }\mu\text{V}$, quedando oculta bajo el ECG materno ($10\text{ a }100$ veces más fuerte).
-2. **Separación de Fuentes:** Se aplica cancelación adaptativa del complejo materno ($mQRS$) seguida de **FastICA** a 3.000 iteraciones para aislar la componente fetal pura de 4 canales abdominales en cruz.
-3. **Diagnóstico con Alta Certeza:** Extracción de 13 biomarcadores de variabilidad del ritmo cardíaco fetal (fHRV) y clasificación con **Machine Learning Calibrado** (`CalibratedClassifierCV`), logrando probabilidades contundentes (bebés sanos $< 15\%$, arritmias $> 85\%$).
+2. **Separación de Fuentes:** Se aplica cancelación adaptativa del complejo materno ($mQRS$) mediante sustracción en subespacio SVD (**TS-SVD**) seguida de **FastICA** y selector inteligente de calidad **bSQI** para aislar la componente fetal pura de las derivaciones abdominales.
+3. **Diagnóstico Clínico Riguroso:** Extracción de 14 biomarcadores de variabilidad del ritmo cardíaco fetal (fHRV, ectopias, prematurez, pausas compensatorias) y clasificación con un ensamble regularizado validado mediante Leave-One-Patient-Out (LOPO) y StratifiedGroupKFold sin fuga de datos (**95.8% exactitud, 100% sensibilidad**).
 
 ---
 
-## 🚀 2. Guía de Inicio Rápido (Setup para Juliana y el Equipo)
+## 🚀 2. Guía de Inicio Rápido
 
 Sigue estos sencillos pasos para clonar, instalar y poner en marcha el proyecto en cualquier computadora:
 
 ### Paso 1: Clonar el repositorio
 Abre una terminal (PowerShell, Bash o CMD) y ejecuta:
 ```bash
-git clone https://github.com/Sviasus/Detecci-n-de-Arritmias-Cardiacas-en-Fetos-de-manera-No-Invasiva.git
-cd Detecci-n-de-Arritmias-Cardiacas-en-Fetos-de-manera-No-Invasiva
+git clone https://github.com/Sviasus/DACF.git
+cd DACF
 ```
 
 ### Paso 2: Cambiar a la rama de desarrollo

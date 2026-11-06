@@ -2,28 +2,49 @@
 venv/
 env/
 .venv/
+ENV/
+env.bak/
+venv.bak/
 
-# Caché de Python
+# Caché de Python y compilación
 __pycache__/
 *.py[cod]
 *$py.class
 src/__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
 
-# Configuración de editores
+# Configuración de IDEs y editores
 .vscode/
 .idea/
+*.sublime-project
+*.sublime-workspace
+.antigravity/
+.antigravity-ide/
 
-# Señales pesadas y temporales de PhysioNet
+# Logs y volcados temporales
+*.log
+*.tmp
+*.bak
+
+# Señales bioeléctricas masivas de PhysioNet
 *.dat
 *.hea
 *.fqrs
 *.mat
 *.zip
 *.tar.gz
-data/cinc2013/
-data/fecgsyndb/
+*.csv.gz
 
-# Muestras de prueba incluidas en el repositorio para despliegue inmediato
+# Directorios de bases de datos biomédicas crudas
+data/cinc2013/
+data/cinc2013_real/
+data/fecgsyndb/
+data/nifeadb/
+data/adfecgdb_real/
+
+# Muestras mínimas de validación/demostración incluidas para ejecución inmediata
 !data/cinc2013_real/set-a/a01.dat
 !data/cinc2013_real/set-a/a01.hea
 !data/cinc2013_real/set-a/a11.dat
@@ -33,9 +54,13 @@ data/fecgsyndb/
 !data/cinc2013_real/set-b/b11.dat
 !data/cinc2013_real/set-b/b11.hea
 
-# Archivos de sistema
+# Dataset consolidado de biomarcadores clínicos (necesario para model_trainer y app)
+!data/dataset_features.csv
+
+# Archivos de sistema operativo
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Scripts de prueba temporales
-scratch/
+# Scripts y experimentos temporales
+scratch/
