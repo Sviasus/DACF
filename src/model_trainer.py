@@ -4,7 +4,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import StratifiedGroupKFold
+from sklearn.model_selection import StratifiedGroupKFold, LeaveOneGroupOut
 from sklearn.preprocessing import RobustScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import (
@@ -29,90 +29,6 @@ DATA_DIR = PROJECT_ROOT / "data"
 MODELS_DIR = PROJECT_ROOT / "models"
 MODELS_DIR.mkdir(exist_ok=True)
 CSV_PATH = DATA_DIR / "dataset_features.csv"
-SPLITS_CSV_PATH = DATA_DIR / "dataset_features_splits.csv"
-
-# Biomarcadores clínicos seleccionados:
-# Se emplea `Bradytachy_Score` en lugar de `BPM_mean` crudo para que el modelo penalice
-# únicamente desviaciones fuera del rango normocárdico fetal basal (130-158 bpm) sin
-# sobreajustar a variaciones sinusales normales entre cohortes (132-155 bpm).
-CLINICAL_FEATURES = [
-    "SDNN",
-    "RMSSD",
-    "pNN50",
-    "pNN20",
-    "Ectopic_Beat_Ratio",
-    "Prematurity_Index",
-    "Compensatory_Pause_Ratio",
-    "CV_RR_Robust",
-    "nRMSSD",
-    "Bradytachy_Score",
-    "LF",
-    "HF",
-    "SD2",
-    "SampEn",
-]
-
-
-def _construir_estimador_base():
-    """
-    Ensamble híbrido clínico (Árboles de Decisión Someros + Regresión Logística Regularizada)
-    que soporta nativamente `sample_weight` por paciente y captura tanto arritmias ectópicas
-    (PAC/PVC) como bradicardias/taquicardias fetales sostenidas sin sobreajustar al individuo.
-    """
-    rf = RandomForestClassifier(
-        n_estimators=150,
-        max_depth=3,
-        min_samples_leaf=4,
-        max_features=0.60,
-        class_weight="balanced",
-        random_state=42,
-    )
-    et = ExtraTreesClassifier(
-        n_estimators=150,
-        max_depth=4,
-        min_samples_leaf=3,
-        max_features=0.60,
-        class_weight="balanced",
-        random_state=42,
-    )
-    gb = GradientBoostingClassifier(
-        n_estimators=55,
-        learning_rate=0.05,
-        max_depth=2,
-        min_samples_leaf=5,
-        subsample=0.80,
-        random_state=42,
-    )
-    lr = LogisticRegression(
-        C=0.60,
-        class_weight="balanced",
-        max_iter=1000,
-        random_state=42,
-    )
-    return VotingClassifier(
-        estimators=[("rf", rf), ("et", et), ("gb", gb), ("lr", lr)],
-        voting="soft",
-        weights=[1.2, 1.0, 1.0, 1.2],
-    )
-
-
-def _calcular_pesos_clinicos(df_sub):
-    """
-    Asigna pesos muestrales (sample_weight) tales que:
-    1. Cada uno de los 24 pacientes únicos contribuye exactamente con el mismo peso total.
-    2. Dentro de cada paciente, las ventanas con mayor calidad de señal (SQI) reciben mayor peso.
-    """
-    sqi = df_sub["SQI"].values if "SQI" in df_sub.columns else np.ones(len(df_sub))
-    sqi_w = np.clip(sqi, 0.15, 1.0) ** 1.5
-    registros = df_sub["Registro"].values
-    pesos = np.zeros(len(df_sub), dtype=np.float64)
-
-    for rec in np.unique(registros):
-        mask = registros == rec
-        pesos[mask] = sqi_w[mask] / (np.sum(sqi_w[mask]) + 1e-8)
-
-    pesos = pesos * (len(df_sub) / (np.sum(pesos) + 1e-8))
-    return pesos
 
 # Biomarcadores clínicos seleccionados:
 # Se emplea `Bradytachy_Score` en lugar de `BPM_mean` crudo para que el modelo penalice
@@ -216,20 +132,14 @@ def cargar_dataset(csv_path):
         df.to_csv(csv_path, index=False)
 
     nifea_mask = df["Dataset"] == "NIFEA_DB"
-    if nifea_mask.sum() >= 200:
-        df_train = df[nifea_mask].copy()
-    else:
-        df_train = df.copy()
+    df_train = df[nifea_mask].copy().reset_index(drop=True)
 
-    columnas_excluidas = ["Registro", "Dataset", "Target"]
-    features = [c for c in df_train.columns if c not in columnas_excluidas]
-
-    X = df_train[features].copy()
-    y = df_train["Target"].values
+    features = [c for c in CLINICAL_FEATURES if c in df_train.columns]
+    X_df = df_train[features].copy()
+    y = df_train["Target"].values.astype(int)
     groups = df_train["Registro"].values
 
-    # Imputación robusta por mediana
-    X = X.fillna(X.median()).values
+    X = X_df.fillna(X_df.median()).values
     return X, y, groups, features, df_train
 
 
@@ -383,5 +293,5 @@ def entrenar_modelo_calibrado(X, y, groups, features, df_train=None):
 
 
 if __name__ == "__main__":
-    X, y, groups, features, _ = cargar_dataset(CSV_PATH)
-    entrenar_modelo_calibrado(X, y, groups, features)
+    X, y, groups, features, df_train = cargar_dataset(CSV_PATH)
+    entrenar_modelo_calibrado(X, y, groups, features, df_train=df_train)
