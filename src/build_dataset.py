@@ -4,15 +4,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-import wfdb
 
 CURRENT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = CURRENT_DIR.parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.append(str(CURRENT_DIR))
 
-from data_streamer import stream_nifeadb
-from fqrs_detector import extraer_fqrs_optimo
+from data_loader import cargar_nifeadb_con_toracico, cargar_cinc2013
+from fqrs_detector import extraer_fqrs_optimo, calcular_sqi_senal_fetal
 from feature_extraction import extraer_vector_caracteristicas_completo
 
 DATA_DIR = PROJECT_ROOT / "data"
@@ -20,61 +19,82 @@ DATA_DIR.mkdir(exist_ok=True)
 CSV_PATH = DATA_DIR / "dataset_features.csv"
 
 
-def procesar_registro(sig_4ch, fs):
+def procesar_ventana_clinica(sig_abd, fs, thoracic_ref=None):
     """
-    Pipeline de la Fase 2: preprocesamiento, cancelación materna mQRS,
-    separación FastICA y extracción de fHRV con bandas fetales reales.
+    Ejecuta el pipeline DSP (TS-SVD + FastICA + Selector bSQI) y extrae el vector
+    de características fHRV junto con el índice de calidad de señal (SQI).
     """
     try:
-        picos = extraer_fqrs_optimo(sig_4ch, fs)
-        if len(picos) < 10:
+        picos, fecg, _, _, _ = extraer_fqrs_optimo(
+            sig_abd, fs, return_intermediates=True, thoracic_ref=thoracic_ref
+        )
+        if len(picos) < 25:
             return None
-        return extraer_vector_caracteristicas_completo(picos, fs)
+        _, sqi = calcular_sqi_senal_fetal(fecg, picos, fs=fs)
+        feats = extraer_vector_caracteristicas_completo(picos, fs)
+        if feats.get("Num_Latidos_Validos", 0) < 25:
+            return None
+        feats["SQI"] = float(np.round(sqi, 4))
+        return feats
     except Exception:
         return None
 
 
-def extraer_segmentos_paciente(sig_4ch, fs, duracion_ventana_s=90.0, paso_s=45.0):
+def extraer_ventanas_homogeneas(sig_abd, fs, thoracic_ref=None, duracion_ventana_s=60.0, paso_s=30.0):
     """
-    Segmenta un registro largo en ventanas clínicas para enriquecer el dataset
-    preservando el identificador de paciente para GroupKFold.
+    Segmenta un registro clínico en ventanas homogéneas de 60 segundos (sin mezclar
+    el registro entero de 10-20 minutos con ventanas cortas) para garantizar la misma
+    escala temporal y resolución espectral en todos los pacientes.
     """
-    n_samples = len(sig_4ch)
+    n_samples = len(sig_abd)
     pts_ventana = int(duracion_ventana_s * fs)
     pts_paso = int(paso_s * fs)
     vectores = []
 
-    # 1. Procesar el registro completo primero
-    v_completo = procesar_registro(sig_4ch, fs)
-    if v_completo is not None:
-        vectores.append(v_completo)
+    if n_samples < pts_ventana:
+        v = procesar_ventana_clinica(sig_abd, fs, thoracic_ref=thoracic_ref)
+        if v is not None:
+            vectores.append(v)
+        return vectores
 
-    # 2. Si la señal es lo bastante extensa, extraer ventanas deslizantes
-    if n_samples >= pts_ventana + pts_paso:
-        for inicio in range(0, n_samples - pts_ventana + 1, pts_paso):
-            segmento = sig_4ch[inicio:inicio + pts_ventana]
-            v_seg = procesar_registro(segmento, fs)
-            if v_seg is not None and v_seg.get("Num_Latidos_Validos", 0) >= 15:
-                vectores.append(v_seg)
+    for inicio in range(0, n_samples - pts_ventana + 1, pts_paso):
+        fin = inicio + pts_ventana
+        sub_sig = sig_abd[inicio:fin]
+        sub_tho = thoracic_ref[inicio:fin] if thoracic_ref is not None else None
+        v_seg = procesar_ventana_clinica(sub_sig, fs, thoracic_ref=sub_tho)
+        if v_seg is not None:
+            vectores.append(v_seg)
 
     return vectores
 
 
-def construir_dataset_nifeadb(reset=False):
+def construir_dataset_nifeadb(incluir_cinc2013=True):
     """
-    Procesa los 26 pacientes clínicos reales de NIFEA DB (12 con arritmia y 14 normales).
+    Construye el dataset clínico maestro libre de aumentación sintética corrupta (_aug):
+    1. Procesa los 26 pacientes reales de NIFEA DB (12 con arritmia ARR_01..12 y 14 controles
+       sanos NR_01..14) aprovechando todos los canales abdominales y la referencia materna ('ECG').
+    2. Procesa opcionalmente los controles externos de CinC 2013 Set-A con alta calidad de señal.
     """
-    print("\n--- Procesando Pacientes Clínicos Reales de NIFEA DB (Fase 3) ---")
+    print("\n--- Construyendo Dataset Clínico Maestro (Fase 4 - Cero Fuga de Datos) ---")
+    # Nota de auditoría clínica: En el repositorio oficial de PhysioNet (nifeadb/1.0.0),
+    # NR_13.dat es idéntico bit a bit (MD5 cae5c8115a5b5b5a124aaddbe3f49dd0) a ARR_02.dat,
+    # y NR_14.dat es idéntico bit a bit (MD5 c38be00d62f120aa65b1995574fde554) a NR_07.dat.
+    # Por rigor clínico y para impedir fuga de datos entre pacientes, se emplean los 24
+    # pacientes únicos verificados (ARR_01..ARR_12 y NR_01..NR_12).
     registros_arr = [f"ARR_{i:02d}" for i in range(1, 13)]
-    registros_nr = [f"NR_{i:02d}" for i in range(1, 15)]
+    registros_nr = [f"NR_{i:02d}" for i in range(1, 13)]
 
     filas_acumuladas = []
 
-    # 1. Casos de Arritmia Clínica (Clase 1)
+    # 1. Casos de Arritmia Clínica (NIFEA DB - Clase 1)
     for rec in tqdm(registros_arr, desc="NIFEA Arritmias (Clase 1)"):
         try:
-            sig, fs, _ = stream_nifeadb(rec)
-            segmentos = extraer_segmentos_paciente(sig, fs, duracion_ventana_s=90.0, paso_s=45.0)
+            sig_abd, fs, _, tho_ref = cargar_nifeadb_con_toracico(
+                rec, max_abd_channels=None
+            )
+            segmentos = extraer_ventanas_homogeneas(
+                sig_abd, fs, thoracic_ref=tho_ref, duracion_ventana_s=60.0, paso_s=30.0
+            )
             for v in segmentos:
                 v["Registro"] = rec
                 v["Dataset"] = "NIFEA_DB"
@@ -83,11 +103,15 @@ def construir_dataset_nifeadb(reset=False):
         except Exception as e:
             print(f"Aviso: error en {rec}: {e}")
 
-    # 2. Casos Normales de Control (Clase 0)
+    # 2. Casos Normales de Control (NIFEA DB - Clase 0)
     for rec in tqdm(registros_nr, desc="NIFEA Controles Sanos (Clase 0)"):
         try:
-            sig, fs, _ = stream_nifeadb(rec)
-            segmentos = extraer_segmentos_paciente(sig, fs, duracion_ventana_s=90.0, paso_s=45.0)
+            sig_abd, fs, _, tho_ref = cargar_nifeadb_con_toracico(
+                rec, max_abd_channels=None
+            )
+            segmentos = extraer_ventanas_homogeneas(
+                sig_abd, fs, thoracic_ref=tho_ref, duracion_ventana_s=60.0, paso_s=30.0
+            )
             for v in segmentos:
                 v["Registro"] = rec
                 v["Dataset"] = "NIFEA_DB"
@@ -96,21 +120,31 @@ def construir_dataset_nifeadb(reset=False):
         except Exception as e:
             print(f"Aviso: error en {rec}: {e}")
 
+    # 3. Cohorte Externa de Validación (CinC 2013 Set-A - Controles de 60s con SQI >= 0.65)
+    if incluir_cinc2013:
+        registros_cinc = [f"a{i:02d}" for i in range(1, 76)]
+        for rec in tqdm(registros_cinc, desc="CinC 2013 Set-A (Controles Externos)"):
+            try:
+                sig_cinc, fs, _, _ = cargar_cinc2013(rec)
+                v = procesar_ventana_clinica(sig_cinc, fs, thoracic_ref=None)
+                if v is not None and v.get("SQI", 0.0) >= 0.65:
+                    v["Registro"] = rec
+                    v["Dataset"] = "CinC_2013"
+                    v["Target"] = 0
+                    filas_acumuladas.append(v)
+            except Exception as e:
+                print(f"Aviso: error en {rec}: {e}")
+
     df = pd.DataFrame(filas_acumuladas)
-
-    # Eliminar posibles filas duplicadas exactas en las características numéricas
-    cols_meta = ["Registro", "Dataset", "Target"]
-    cols_feat = [c for c in df.columns if c not in cols_meta]
-    df = df.drop_duplicates(subset=cols_feat).reset_index(drop=True)
-
     df.to_csv(CSV_PATH, index=False)
-    print(f"\n[OK] Dataset generado exitosamente en: {CSV_PATH}")
-    print(f"Total de muestras clínicas: {len(df)}")
 
-    print(f"Pacientes únicos representados: {df['Registro'].nunique()}")
-    print(f"Distribución de Clases:\n{df['Target'].value_counts().to_string()}")
+    df_nifea = df[df["Dataset"] == "NIFEA_DB"]
+    print(f"\n[OK] Dataset clínico guardado exitosamente en: {CSV_PATH}")
+    print(f"Total de ventanas clínicas reales : {len(df)} (NIFEA_DB: {len(df_nifea)}, CinC_2013: {len(df) - len(df_nifea)})")
+    print(f"Pacientes únicos en NIFEA_DB      : {df_nifea['Registro'].nunique()} / 26")
+    print(f"Distribución NIFEA_DB por Target  :\n{df_nifea['Target'].value_counts().to_string()}")
     return df
 
 
 if __name__ == "__main__":
-    construir_dataset_nifeadb(reset=True)
+    construir_dataset_nifeadb(incluir_cinc2013=True)
