@@ -1,0 +1,14 @@
+Característica,Norm. Sanos (p-val),Norm. Arritmias (p-val),Prueba Comparativa,P-valor (Diferencia),Cohen's d,Relevancia
+BPM_mean,0.0,0.0089,Mann-Whitney U,0.3991,0.1436,Baja
+SDNN,0.0016,0.0098,Mann-Whitney U,0.2301,0.2686,Baja
+RMSSD,0.0008,0.0016,Mann-Whitney U,0.3016,0.2393,Baja
+pNN50,0.0,0.0002,Mann-Whitney U,0.401,0.1617,Baja
+VLF,0.0,0.0,Mann-Whitney U,0.0101,-0.0408,Baja
+LF,0.0,0.0,Mann-Whitney U,0.3949,0.211,Baja
+HF,0.0001,0.0003,Mann-Whitney U,0.2128,0.2286,Baja
+LF_HF_ratio,0.0,0.0001,Mann-Whitney U,0.4658,-0.1145,Baja
+SD1,0.0009,0.0017,Mann-Whitney U,0.291,0.2428,Baja
+SD2,0.0031,0.0011,Mann-Whitney U,0.2073,0.2735,Baja
+SD1_SD2_ratio,0.5755,0.0787,T-Test (Welch),0.8644,0.0412,Baja
+SampEn,0.0967,0.1378,T-Test (Welch),0.8186,-0.0442,Baja
+DFA_alpha1,0.0386,0.4704,Mann-Whitney U,0.7903,0.126,Baja
