@@ -1,5 +1,6 @@
 import numpy as np
 from scipy import signal  # type: ignore
+from scipy import stats  # type: ignore
 from scipy.integrate import trapezoid  # type: ignore
 
 
@@ -111,13 +112,21 @@ def calcular_tacograma_rr(picos_indices, fs=1000.0):
 def extraer_features_temporales(rr_ms):
     """
     Métricas clásicas y fetales en el dominio del tiempo:
-    BPM_mean, SDNN, RMSSD, pNN50 y pNN20 (estándar fetal dado que el ciclo RR fetal ~420 ms
-    es la mitad del adulto).
+    - Media (BPM_mean)
+    - Desviación estándar (SDNN)
+    - Varianza (RR_variance = SDNN^2)
+    - Máximo (RR_max) y Mínimo (RR_min)
+    - Rango (RR_range = RR_max - RR_min)
+    - RMSSD, pNN50 y pNN20
     """
     if len(rr_ms) < 2:
         return {
             "BPM_mean": 0.0,
             "SDNN": 0.0,
+            "RR_variance": 0.0,
+            "RR_min": 0.0,
+            "RR_max": 0.0,
+            "RR_range": 0.0,
             "RMSSD": 0.0,
             "pNN50": 0.0,
             "pNN20": 0.0,
@@ -126,13 +135,72 @@ def extraer_features_temporales(rr_ms):
     bpm_inst = 60000.0 / rr_ms
     diff_rr = np.diff(rr_ms)
     abs_diff = np.abs(diff_rr)
+    sdnn = float(np.std(rr_ms, ddof=1))
+    rr_min = float(np.min(rr_ms))
+    rr_max = float(np.max(rr_ms))
+    rr_range = float(rr_max - rr_min)
+    rr_var = float(sdnn ** 2)
 
     return {
         "BPM_mean": float(np.mean(bpm_inst)),
-        "SDNN": float(np.std(rr_ms, ddof=1)),
+        "SDNN": sdnn,
+        "RR_variance": rr_var,
+        "RR_min": rr_min,
+        "RR_max": rr_max,
+        "RR_range": rr_range,
         "RMSSD": float(np.sqrt(np.mean(diff_rr ** 2))),
         "pNN50": float((np.sum(abs_diff > 50.0) / len(abs_diff)) * 100.0),
         "pNN20": float((np.sum(abs_diff > 20.0) / len(abs_diff)) * 100.0),
+    }
+
+
+def extraer_features_forma_distribucion(rr_ms):
+    """
+    Medidas de forma de la distribución del tacograma RR:
+    - Asimetría (Skewness): sesgo de la distribución de intervalos RR
+    - Curtosis (Kurtosis): apuntamiento o colas pesadas de la distribución
+    """
+    if len(rr_ms) < 3:
+        return {
+            "RR_skewness": 0.0,
+            "RR_kurtosis": 0.0,
+        }
+
+    sk = float(stats.skew(rr_ms, bias=False)) if len(rr_ms) >= 3 else 0.0
+    kt = float(stats.kurtosis(rr_ms, bias=False)) if len(rr_ms) >= 4 else 0.0
+
+    return {
+        "RR_skewness": float(sk) if np.isfinite(sk) else 0.0,
+        "RR_kurtosis": float(kt) if np.isfinite(kt) else 0.0,
+    }
+
+
+def extraer_features_energeticas_senal(rr_ms, senal=None):
+    """
+    Medidas energéticas de la señal fisiológica (variaciones dinámicas latido a latido):
+    - Energía total de la señal: sum(|dRR[n]|^2)
+    - Potencia promedio: (1/N) * sum(|dRR[n]|^2)
+    """
+    if rr_ms is not None and len(rr_ms) >= 2:
+        diff_rr = np.diff(np.asarray(rr_ms, dtype=np.float64))
+        energia = float(np.sum(diff_rr ** 2))
+        potencia = float(np.mean(diff_rr ** 2))
+        return {
+            "Signal_Energy": energia,
+            "Signal_Power": potencia,
+        }
+
+    if senal is None or len(senal) == 0:
+        return {
+            "Signal_Energy": 0.0,
+            "Signal_Power": 0.0,
+        }
+
+    sig = np.asarray(senal, dtype=np.float64)
+    sig_ac = sig - np.mean(sig)
+    return {
+        "Signal_Energy": float(np.sum(sig_ac ** 2)),
+        "Signal_Power": float(np.mean(sig_ac ** 2)),
     }
 
 
@@ -241,6 +309,99 @@ def extraer_features_frecuenciales(rr_ms, fs_interp=4.0):
         "HF": hf_pow,
         "LF_HF_ratio": lf_hf,
     }
+
+
+def extraer_features_stft(rr_ms, fs_interp=4.0):
+    """
+    Análisis en el Dominio Tiempo-Frecuencia mediante Transformada de Fourier
+    en Ventanas (Short-Time Fourier Transform - STFT):
+    Evalúa la dinámica y variabilidad espectral de la señal a lo largo del tiempo:
+    - STFT_Power_Mean: Potencia espectral media de la matriz tiempo-frecuencia.
+    - STFT_Power_Var: Variabilidad temporal de la energía espectral (indicador de cambios transitorios de ritmo).
+    - STFT_LF_HF_Mean: Promedio temporal del balance simpático/vagal calculado ventana a ventana.
+    - STFT_Spectral_Entropy: Entropía espectral promediada en el tiempo (grado de desorganización o complejidad).
+    """
+    if len(rr_ms) < 15:
+        return {
+            "STFT_Power_Mean": 0.0,
+            "STFT_Power_Var": 0.0,
+            "STFT_LF_HF_Mean": 0.0,
+            "STFT_Spectral_Entropy": 0.0,
+        }
+
+    tiempo_acum = np.cumsum(rr_ms) / 1000.0
+    tiempo_rel = tiempo_acum - tiempo_acum[0]
+    if tiempo_rel[-1] < 8.0:
+        return {
+            "STFT_Power_Mean": 0.0,
+            "STFT_Power_Var": 0.0,
+            "STFT_LF_HF_Mean": 0.0,
+            "STFT_Spectral_Entropy": 0.0,
+        }
+
+    t_interp = np.arange(0.0, tiempo_rel[-1], 1.0 / fs_interp)
+    if len(t_interp) < 24:
+        return {
+            "STFT_Power_Mean": 0.0,
+            "STFT_Power_Var": 0.0,
+            "STFT_LF_HF_Mean": 0.0,
+            "STFT_Spectral_Entropy": 0.0,
+        }
+
+    rr_interp = np.asarray(np.interp(t_interp, tiempo_rel, rr_ms), dtype=np.float64)
+    rr_detrend = signal.detrend(rr_interp, type="linear")
+
+    # Ventana de 16 segundos (~64 muestras a 4 Hz) con solapamiento del 75%
+    nperseg = min(len(rr_detrend), int(fs_interp * 16))
+    if nperseg < 8:
+        nperseg = 8
+    noverlap = int(nperseg * 0.75)
+    nfft = max(256, nperseg)
+
+    try:
+        f_stft, t_stft, zxx = signal.stft(
+            rr_detrend,
+            fs=fs_interp,
+            window="hann",
+            nperseg=nperseg,
+            noverlap=noverlap,
+            nfft=nfft,
+            boundary=None,
+        )
+        potencia_tf = np.abs(zxx) ** 2  # (n_freqs, n_times)
+
+        # Potencia promedio y varianza temporal de potencia
+        p_mean = float(np.mean(potencia_tf))
+        p_var = float(np.var(np.sum(potencia_tf, axis=0)))
+
+        # Balance LF/HF dinámico en el tiempo
+        lf_mask = (f_stft >= 0.04) & (f_stft < 0.20)
+        hf_mask = (f_stft >= 0.20) & (f_stft <= 1.00)
+
+        lf_stft = np.sum(potencia_tf[lf_mask, :], axis=0) if np.any(lf_mask) else np.zeros(potencia_tf.shape[1])
+        hf_stft = np.sum(potencia_tf[hf_mask, :], axis=0) if np.any(hf_mask) else np.zeros(potencia_tf.shape[1])
+        ratios_t = lf_stft / (hf_stft + 1e-8)
+        lf_hf_mean = float(np.mean(ratios_t)) if len(ratios_t) > 0 else 0.0
+
+        # Entropía espectral tiempo-frecuencia normalizada
+        psd_norm = potencia_tf / (np.sum(potencia_tf, axis=0, keepdims=True) + 1e-12)
+        entropias = -np.sum(psd_norm * np.log(psd_norm + 1e-12), axis=0)
+        max_ent = np.log(potencia_tf.shape[0]) if potencia_tf.shape[0] > 1 else 1.0
+        spectral_ent = float(np.mean(entropias / (max_ent + 1e-8)))
+
+        return {
+            "STFT_Power_Mean": p_mean,
+            "STFT_Power_Var": p_var,
+            "STFT_LF_HF_Mean": lf_hf_mean,
+            "STFT_Spectral_Entropy": spectral_ent,
+        }
+    except Exception:
+        return {
+            "STFT_Power_Mean": 0.0,
+            "STFT_Power_Var": 0.0,
+            "STFT_LF_HF_Mean": 0.0,
+            "STFT_Spectral_Entropy": 0.0,
+        }
 
 
 def _calcular_sampen_numpy(serie, m=2, r=0.2):
@@ -359,16 +520,25 @@ def extraer_features_no_lineales(rr_ms):
     }
 
 
-def extraer_vector_caracteristicas_completo(picos_indices, fs=1000.0):
+def extraer_vector_caracteristicas_completo(picos_indices, fs=1000.0, senal_cruda_o_fecg=None):
     """
-    Calcula el vector consolidado de características clínicas fHRV (temporales,
-    biomarcadores de arritmia/ectopia, frecuenciales de alta resolución y no lineales).
+    Calcula el vector consolidado de características clínicas fHRV:
+    - Dominio del tiempo clásico y extendido (Media, Desviación estándar, Varianza, Min, Max, Rango, RMSSD, pNN50, pNN20).
+    - Medidas de forma de la distribución (Asimetría / Skewness, Curtosis / Kurtosis).
+    - Medidas energéticas de la señal (Energía total y Potencia promedio).
+    - Biomarcadores de arritmia / ectopia clínica fetal.
+    - Dominio de la frecuencia adaptado (Welch VLF, LF, HF, LF/HF).
+    - Dominio tiempo-frecuencia (STFT potencia media, varianza temporal, balance LF/HF y entropía espectral).
+    - No lineales (Poincaré SD1, SD2, ratio, SampEn, DFA alpha1).
     """
     rr_ms = calcular_tacograma_rr(picos_indices, fs)
     feats = {}
     feats.update(extraer_features_temporales(rr_ms))
+    feats.update(extraer_features_forma_distribucion(rr_ms))
+    feats.update(extraer_features_energeticas_senal(rr_ms, senal=senal_cruda_o_fecg))
     feats.update(extraer_features_arritmia_clinica(rr_ms))
     feats.update(extraer_features_frecuenciales(rr_ms))
+    feats.update(extraer_features_stft(rr_ms))
     feats.update(extraer_features_no_lineales(rr_ms))
     feats["Num_Latidos_Validos"] = len(rr_ms)
     return feats

@@ -30,15 +30,27 @@ MODELS_DIR = PROJECT_ROOT / "models"
 MODELS_DIR.mkdir(exist_ok=True)
 CSV_PATH = DATA_DIR / "dataset_features.csv"
 
-# Biomarcadores clínicos seleccionados:
+# Biomarcadores clínicos seleccionados (26 características multimodales):
+# Integra estadísticas temporales extendidas (SDNN, Varianza, Mínimo, Máximo, Rango, RMSSD, pNN50, pNN20),
+# medidas de forma de distribución (Asimetría/Skewness, Curtosis), medidas energéticas (Energía, Potencia),
+# biomarcadores de ectopia/arritmia clínica, dominio frecuencial (Welch LF, HF), dominio tiempo-frecuencia
+# (STFT potencia media, varianza, balance LF/HF y entropía espectral) y dinámica no lineal (SD2, SampEn).
 # Se emplea `Bradytachy_Score` en lugar de `BPM_mean` crudo para que el modelo penalice
 # únicamente desviaciones fuera del rango normocárdico fetal basal (130-158 bpm) sin
 # sobreajustar a variaciones sinusales normales entre cohortes (132-155 bpm).
 CLINICAL_FEATURES = [
     "SDNN",
+    "RR_variance",
+    "RR_min",
+    "RR_max",
+    "RR_range",
     "RMSSD",
     "pNN50",
     "pNN20",
+    "RR_skewness",
+    "RR_kurtosis",
+    "Signal_Energy",
+    "Signal_Power",
     "Ectopic_Beat_Ratio",
     "Prematurity_Index",
     "Compensatory_Pause_Ratio",
@@ -47,6 +59,10 @@ CLINICAL_FEATURES = [
     "Bradytachy_Score",
     "LF",
     "HF",
+    "STFT_Power_Mean",
+    "STFT_Power_Var",
+    "STFT_LF_HF_Mean",
+    "STFT_Spectral_Entropy",
     "SD2",
     "SampEn",
 ]
@@ -62,7 +78,7 @@ def _construir_estimador_base():
         n_estimators=150,
         max_depth=3,
         min_samples_leaf=4,
-        max_features=0.60,
+        max_features=0.85,
         class_weight="balanced",
         random_state=42,
     )
@@ -70,12 +86,12 @@ def _construir_estimador_base():
         n_estimators=150,
         max_depth=4,
         min_samples_leaf=3,
-        max_features=0.60,
+        max_features=0.85,
         class_weight="balanced",
         random_state=42,
     )
     gb = GradientBoostingClassifier(
-        n_estimators=55,
+        n_estimators=65,
         learning_rate=0.05,
         max_depth=2,
         min_samples_leaf=5,
@@ -83,7 +99,7 @@ def _construir_estimador_base():
         random_state=42,
     )
     lr = LogisticRegression(
-        C=0.60,
+        C=0.50,
         class_weight="balanced",
         max_iter=1000,
         random_state=42,
@@ -91,7 +107,7 @@ def _construir_estimador_base():
     return VotingClassifier(
         estimators=[("rf", rf), ("et", et), ("gb", gb), ("lr", lr)],
         voting="soft",
-        weights=[1.2, 1.0, 1.0, 1.2],
+        weights=[1.2, 0.8, 1.8, 1.0],
     )
 
 

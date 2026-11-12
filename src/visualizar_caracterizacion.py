@@ -7,7 +7,7 @@ import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.stats import shapiro, mannwhitneyu, ttest_ind
+from scipy.stats import shapiro, mannwhitneyu, ttest_ind  # type: ignore
 
 # ============================================================
 # CONFIGURACIÓN DE RUTAS
@@ -23,10 +23,22 @@ RESULTADOS.mkdir(parents=True, exist_ok=True)
 # CONFIGURACIÓN DE CARACTERÍSTICAS
 # ============================================================
 MAX_MUESTRAS = 100
-FEATURES_TEMPORALES = ["BPM_mean", "SDNN", "RMSSD", "pNN50"]
+FEATURES_TEMPORALES = [
+    "BPM_mean", "SDNN", "RR_variance", "RR_min", "RR_max", "RR_range", "RMSSD", "pNN50", "pNN20"
+]
+FEATURES_ENERGIA_FORMA = ["Signal_Energy", "Signal_Power", "RR_skewness", "RR_kurtosis"]
 FEATURES_FRECUENCIALES = ["VLF", "LF", "HF", "LF_HF_ratio"]
+FEATURES_TIEMPO_FRECUENCIA = [
+    "STFT_Power_Mean", "STFT_Power_Var", "STFT_LF_HF_Mean", "STFT_Spectral_Entropy"
+]
 FEATURES_NO_LINEALES = ["SD1", "SD2", "SD1_SD2_ratio", "SampEn", "DFA_alpha1"]
-FEATURES = FEATURES_TEMPORALES + FEATURES_FRECUENCIALES + FEATURES_NO_LINEALES
+FEATURES = (
+    FEATURES_TEMPORALES
+    + FEATURES_ENERGIA_FORMA
+    + FEATURES_FRECUENCIALES
+    + FEATURES_TIEMPO_FRECUENCIA
+    + FEATURES_NO_LINEALES
+)
 
 print("=" * 70)
 print("ANÁLISIS ESTADÍSTICO Y VISUALIZACIÓN DE CARACTERÍSTICAS")
@@ -140,8 +152,8 @@ df_stats = pd.DataFrame(resultados_estadisticos)
 print("\n--- Resultados del Análisis Estadístico (3 Clases) ---")
 print(df_stats.to_string(index=False))
 
-df_stats.to_csv(RESULTADOS / "analisis_estadistico_shapiro_cohen_3clases.csv", index=False)
-print(f"\n[OK] Análisis exportado a: {RESULTADOS / 'analisis_estadistico_shapiro_cohen_3clases.csv'}")
+df_stats.to_csv(RESULTADOS / "analisis_estadistico_shapiro_cohen_3clases_nuevo.csv", index=False)
+print(f"\n[OK] Análisis exportado a: {RESULTADOS / 'analisis_estadistico_shapiro_cohen_3clases_nuevo.csv'}")
 
 # ============================================================
 # PARTE 2 — BOXPLOTS COMPARATIVOS POR 3 CLASES (CON COLORES)
@@ -168,45 +180,67 @@ def crear_boxplot_3_clases(columnas, titulo, nombre_archivo):
     if not columnas_plot:
         return
 
-    n_cols = len(columnas_plot)
-    fig, axes = plt.subplots(1, n_cols, figsize=(5 * n_cols, 6))
-    if n_cols == 1:
-        axes = [axes]
+    n_total = len(columnas_plot)
+    n_cols = min(5, n_total)
+    n_rows = int(np.ceil(n_total / n_cols))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4.5 * n_cols, 5.2 * n_rows))
+    axes_flat = np.atleast_1d(axes).ravel()
 
     # Paleta de colores: Verde (Normal), Azul (Bradicardia), Rojo (Taquicardia)
     colores = ['#4CAF50', '#2196F3', '#F44336']
 
     for i, col in enumerate(columnas_plot):
-        # Ignorar grupos vacíos si la muestra extraída no tiene alguno de los 3
         data_to_plot = [sanos[col].values, bradicardias[col].values, taquicardias[col].values]
-        
-        # Crear boxplot habilitando patch_artist para poder colorear
-        bplot = axes[i].boxplot(
-            data_to_plot, 
-            patch_artist=True, 
-            tick_labels=['Normal', 'Bradicardia', 'Taquicardia'], 
+
+        bplot = axes_flat[i].boxplot(
+            data_to_plot,
+            patch_artist=True,
+            tick_labels=['Normal', 'Bradicardia', 'Taquicardia'],
             showmeans=True
         )
-        
-        # Aplicar colores a cada caja
+
         for patch, color in zip(bplot['boxes'], colores):
             patch.set_facecolor(color)
-            patch.set_alpha(0.7) # Transparencia para ver la media/mediana
+            patch.set_alpha(0.7)
 
-        axes[i].set_title(col, fontweight="bold")
-        axes[i].grid(axis="y", alpha=0.3)
-        # Rotar etiquetas para que no se superpongan
-        axes[i].tick_params(axis='x', rotation=25)
+        axes_flat[i].set_title(col, fontweight="bold")
+        axes_flat[i].grid(axis="y", alpha=0.3)
+        axes_flat[i].tick_params(axis='x', rotation=25)
+
+    for j in range(n_total, len(axes_flat)):
+        axes_flat[j].set_visible(False)
 
     plt.suptitle(titulo, fontsize=16, fontweight="bold")
     plt.tight_layout()
     plt.savefig(RESULTADOS / nombre_archivo, dpi=300, bbox_inches="tight")
     plt.show()
 
-# Generar las gráficas actualizadas
-crear_boxplot_3_clases(FEATURES_TEMPORALES, "Comparación 3 Clases - Temporales", "07_boxplot_comp_temporales.png")
-crear_boxplot_3_clases(FEATURES_FRECUENCIALES, "Comparación 3 Clases - Frecuenciales", "08_boxplot_comp_frecuenciales.png")
-crear_boxplot_3_clases(FEATURES_NO_LINEALES, "Comparación 3 Clases - No Lineales", "09_boxplot_comp_no_lineales.png")
+# Generar las gráficas actualizadas con sufijo _nuevo
+crear_boxplot_3_clases(
+    FEATURES_TEMPORALES,
+    "Comparación 3 Clases - Temporales (Incl. Varianza, Min, Max, Rango)",
+    "07_boxplot_comp_temporales_nuevo.png",
+)
+crear_boxplot_3_clases(
+    FEATURES_ENERGIA_FORMA,
+    "Comparación 3 Clases - Energía, Potencia, Asimetría y Curtosis",
+    "14_boxplot_comp_energia_forma_nuevo.png",
+)
+crear_boxplot_3_clases(
+    FEATURES_FRECUENCIALES,
+    "Comparación 3 Clases - Frecuenciales (Welch)",
+    "08_boxplot_comp_frecuenciales_nuevo.png",
+)
+crear_boxplot_3_clases(
+    FEATURES_TIEMPO_FRECUENCIA,
+    "Comparación 3 Clases - Tiempo-Frecuencia (STFT)",
+    "15_boxplot_comp_stft_tiempo_frecuencia_nuevo.png",
+)
+crear_boxplot_3_clases(
+    FEATURES_NO_LINEALES,
+    "Comparación 3 Clases - No Lineales",
+    "09_boxplot_comp_no_lineales_nuevo.png",
+)
 
 # ============================================================
 # PARTE 3 — MATRIZ DE CORRELACIÓN
@@ -222,27 +256,27 @@ corr = df_corr.corr(method="pearson")
 print("\nMatriz de correlación calculada.")
 
 # Configurar la gráfica
-plt.figure(figsize=(12, 10))
-# Usamos un mapa de colores 'coolwarm' para distinguir correlaciones positivas (rojo) y negativas (azul)
+plt.figure(figsize=(16, 14))
 plt.imshow(corr, cmap="coolwarm", interpolation="nearest", aspect="auto", vmin=-1, vmax=1)
 plt.colorbar(label="Correlación de Pearson")
 
 # Ajustar etiquetas de los ejes
-plt.xticks(range(len(corr.columns)), corr.columns, rotation=45, ha='right')
-plt.yticks(range(len(corr.columns)), corr.columns)
-plt.title("Matriz de Correlación de Características", fontsize=16, fontweight="bold")
+cols_corr = list(corr.columns)
+corr_vals = corr.to_numpy(dtype=np.float64)
+plt.xticks(range(len(cols_corr)), cols_corr, rotation=45, ha='right', fontsize=9)
+plt.yticks(range(len(cols_corr)), cols_corr, fontsize=9)
+plt.title("Matriz de Correlación de Características (Con Nuevas Métricas)", fontsize=16, fontweight="bold")
 
 # Escribir los valores numéricos dentro de la matriz
-for i in range(len(corr.columns)):
-    for j in range(len(corr.columns)):
-        valor = corr.iloc[i, j]
+for i in range(len(cols_corr)):
+    for j in range(len(cols_corr)):
+        valor = float(corr_vals[i, j])
         if not np.isnan(valor):
-            # Cambiar el color del texto a blanco si el fondo es muy oscuro para mejor lectura
             color_texto = "white" if abs(valor) > 0.6 else "black"
-            plt.text(j, i, f"{valor:.2f}", ha="center", va="center", fontsize=8, color=color_texto)
+            plt.text(j, i, f"{valor:.2f}", ha="center", va="center", fontsize=6.5, color=color_texto)
 
 plt.tight_layout()
-plt.savefig(RESULTADOS / "10_matriz_correlacion.png", dpi=300, bbox_inches="tight")
+plt.savefig(RESULTADOS / "10_matriz_correlacion_nuevo.png", dpi=300, bbox_inches="tight")
 plt.show()
 
 # ============================================================
@@ -252,8 +286,8 @@ print("\n" + "=" * 70)
 print("PARTE 6 — DIAGRAMAS DE DISPERSIÓN Y BARRAS POR CLASE")
 print("=" * 70)
 
-# Definir las características más significativas a comparar
-top_features = ["BPM_mean", "SDNN", "RMSSD", "LF_HF_ratio"]
+# Definir las características más significativas a comparar (incluyendo nuevas métricas)
+top_features = ["BPM_mean", "SDNN", "RMSSD", "LF_HF_ratio", "RR_range", "STFT_Spectral_Entropy"]
 top_disponibles = [f for f in top_features if f in df_plot.columns]
 
 colores = ['#4CAF50', '#2196F3', '#F44336'] # Verde (Normal), Azul (Bradi), Rojo (Taqui)
@@ -268,7 +302,7 @@ print("\nGenerando diagramas de dispersión...")
 if len(top_disponibles) >= 2:
     # Cruce 1: Frecuencia (BPM_mean) vs Variabilidad a corto plazo (RMSSD)
     f1, f2 = "BPM_mean", "RMSSD"
-    if f1 in top_disponibles and f2 in top_disponibles:
+    if f1 in df_plot.columns and f2 in df_plot.columns:
         plt.figure(figsize=(9, 6))
         for grupo, color, etiqueta in zip(grupos, colores, etiquetas):
             if not grupo.empty:
@@ -280,12 +314,12 @@ if len(top_disponibles) >= 2:
         plt.legend(title="Clase Clínica")
         plt.grid(alpha=0.3)
         plt.tight_layout()
-        plt.savefig(RESULTADOS / f"11_dispersion_{f1}_vs_{f2}.png", dpi=300, bbox_inches="tight")
+        plt.savefig(RESULTADOS / f"11_dispersion_{f1}_vs_{f2}_nuevo.png", dpi=300, bbox_inches="tight")
         plt.show()
 
     # Cruce 2: Variabilidad Global (SDNN) vs Balance Simpatovagal (LF_HF_ratio)
     f3, f4 = "SDNN", "LF_HF_ratio"
-    if f3 in top_disponibles and f4 in top_disponibles:
+    if f3 in df_plot.columns and f4 in df_plot.columns:
         plt.figure(figsize=(9, 6))
         for grupo, color, etiqueta in zip(grupos, colores, etiquetas):
             if not grupo.empty:
@@ -297,7 +331,24 @@ if len(top_disponibles) >= 2:
         plt.legend(title="Clase Clínica")
         plt.grid(alpha=0.3)
         plt.tight_layout()
-        plt.savefig(RESULTADOS / f"12_dispersion_{f3}_vs_{f4}.png", dpi=300, bbox_inches="tight")
+        plt.savefig(RESULTADOS / f"12_dispersion_{f3}_vs_{f4}_nuevo.png", dpi=300, bbox_inches="tight")
+        plt.show()
+
+    # Cruce 3 (Nuevo): Entropía Espectral STFT vs Asimetría RR (Skewness)
+    f5, f6 = "STFT_Spectral_Entropy", "RR_skewness"
+    if f5 in df_plot.columns and f6 in df_plot.columns:
+        plt.figure(figsize=(9, 6))
+        for grupo, color, etiqueta in zip(grupos, colores, etiquetas):
+            if not grupo.empty:
+                plt.scatter(grupo[f5], grupo[f6], c=color, label=etiqueta, alpha=0.7, edgecolors='k', s=60)
+                
+        plt.title(f"Dispersión Clínica (Nuevas Métricas): {f5} vs {f6}", fontsize=14, fontweight="bold")
+        plt.xlabel(f5)
+        plt.ylabel(f6)
+        plt.legend(title="Clase Clínica")
+        plt.grid(alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(RESULTADOS / f"16_dispersion_{f5}_vs_{f6}_nuevo.png", dpi=300, bbox_inches="tight")
         plt.show()
 
 # ------------------------------------------------------------
@@ -305,36 +356,34 @@ if len(top_disponibles) >= 2:
 # ------------------------------------------------------------
 print("\nGenerando diagrama de barras comparativas...")
 
-if top_disponibles:
-    # Calcular medias para cada grupo ignorando NaN
-    medias_sanos = [sanos[f].mean() if not sanos.empty else 0 for f in top_disponibles]
-    medias_bradi = [bradicardias[f].mean() if not bradicardias.empty else 0 for f in top_disponibles]
-    medias_taqui = [taquicardias[f].mean() if not taquicardias.empty else 0 for f in top_disponibles]
+bar_features = [f for f in ["BPM_mean", "SDNN", "RMSSD", "RR_range", "RR_kurtosis", "STFT_Power_Mean"] if f in df_plot.columns]
+if bar_features:
+    medias_sanos = [sanos[f].mean() if not sanos.empty else 0 for f in bar_features]
+    medias_bradi = [bradicardias[f].mean() if not bradicardias.empty else 0 for f in bar_features]
+    medias_taqui = [taquicardias[f].mean() if not taquicardias.empty else 0 for f in bar_features]
 
-    # Calcular desviaciones estándar para las barras de error
-    std_sanos = [sanos[f].std() if not sanos.empty else 0 for f in top_disponibles]
-    std_bradi = [bradicardias[f].std() if not bradicardias.empty else 0 for f in top_disponibles]
-    std_taqui = [taquicardias[f].std() if not taquicardias.empty else 0 for f in top_disponibles]
+    std_sanos = [sanos[f].std() if not sanos.empty else 0 for f in bar_features]
+    std_bradi = [bradicardias[f].std() if not bradicardias.empty else 0 for f in bar_features]
+    std_taqui = [taquicardias[f].std() if not taquicardias.empty else 0 for f in bar_features]
 
-    x = np.arange(len(top_disponibles))
-    width = 0.25  # Ancho de las barras
+    x = np.arange(len(bar_features))
+    width = 0.25
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=(12, 6))
     
-    # Graficar las barras con sus respectivos errores (desviación estándar)
     ax.bar(x - width, medias_sanos, width, yerr=std_sanos, label='Normal', color=colores[0], alpha=0.8, capsize=5, edgecolor='black')
     ax.bar(x, medias_bradi, width, yerr=std_bradi, label='Bradicardia', color=colores[1], alpha=0.8, capsize=5, edgecolor='black')
     ax.bar(x + width, medias_taqui, width, yerr=std_taqui, label='Taquicardia', color=colores[2], alpha=0.8, capsize=5, edgecolor='black')
 
     ax.set_ylabel('Valor Promedio')
-    ax.set_title('Comparación de Características Clave por Clase', fontsize=15, fontweight="bold")
+    ax.set_title('Comparación de Características Clave por Clase (Incl. Nuevas Métricas)', fontsize=15, fontweight="bold")
     ax.set_xticks(x)
-    ax.set_xticklabels(top_disponibles, fontsize=12)
+    ax.set_xticklabels(bar_features, fontsize=11, rotation=15)
     ax.legend(title="Clase Clínica")
     ax.grid(axis='y', alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(RESULTADOS / "13_barras_comparativas.png", dpi=300, bbox_inches="tight")
+    plt.savefig(RESULTADOS / "13_barras_comparativas_nuevo.png", dpi=300, bbox_inches="tight")
     plt.show()
 
 print("\n" + "=" * 70)

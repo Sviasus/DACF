@@ -11,13 +11,19 @@ from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
-import wfdb
+import wfdb  # type: ignore
 
 # Importamos las funciones REALES del proyecto
 from fqrs_detector import (
     cancelar_complejos_maternos,
     aislar_componente_fecg,
     detector_pan_tompkins_fetal,
+    extraer_fqrs_optimo,
+)
+from preprocessing import preprocesar_senal_multicanal
+from feature_extraction import (
+    calcular_tacograma_rr,
+    extraer_vector_caracteristicas_completo,
 )
 
 
@@ -89,7 +95,7 @@ registro = wfdb.rdrecord(
 
 fs = float(registro.fs)
 
-signals = registro.p_signal
+signals = np.asarray(registro.p_signal, dtype=np.float64)
 
 print("✓ Registro cargado.")
 
@@ -140,7 +146,7 @@ print("=" * 70)
 # No implementamos filtros diferentes.
 # ------------------------------------------------------------
 
-from preprocessing import preprocesar_senal_multicanal
+# El preprocesamiento real se importa al inicio desde preprocessing.py.
 
 
 print("\nAplicando preprocesamiento real del proyecto...")
@@ -214,12 +220,12 @@ fig.suptitle(
 )
 
 plt.tight_layout(
-    rect=[0, 0, 1, 0.95]
+    rect=(0.0, 0.0, 1.0, 0.95)
 )
 
 plt.savefig(
     RESULTADOS /
-    f"01_original_vs_preprocesada_{REGISTRO}.png",
+    f"01_original_vs_preprocesada_{REGISTRO}_nuevo.png",
     dpi=300,
     bbox_inches="tight"
 )
@@ -339,12 +345,12 @@ fig.suptitle(
 )
 
 plt.tight_layout(
-    rect=[0, 0, 1, 0.95]
+    rect=(0.0, 0.0, 1.0, 0.95)
 )
 
 plt.savefig(
     RESULTADOS /
-    f"02_cancelacion_materna_{REGISTRO}.png",
+    f"02_cancelacion_materna_{REGISTRO}_nuevo.png",
     dpi=300,
     bbox_inches="tight"
 )
@@ -400,44 +406,38 @@ fig, axes = plt.subplots(
     sharex=True
 )
 
-
-# Cuando solamente existe una componente,
-# matplotlib no devuelve una lista de axes.
-
-if fuentes.shape[1] == 1:
-    axes = [axes]
-
+axes_ica = list(np.atleast_1d(axes).ravel())
 
 for i in range(fuentes.shape[1]):
 
-    axes[i].plot(
+    axes_ica[i].plot(
         tiempo,
         fuentes[:, i]
     )
 
     if i == idx_fetal:
 
-        axes[i].set_title(
+        axes_ica[i].set_title(
             f"Componente ICA {i} — COMPONENTE FETAL SELECCIONADA",
             fontweight="bold"
         )
 
     else:
 
-        axes[i].set_title(
+        axes_ica[i].set_title(
             f"Componente ICA {i}"
         )
 
-    axes[i].set_ylabel(
+    axes_ica[i].set_ylabel(
         "Amplitud"
     )
 
-    axes[i].grid(
+    axes_ica[i].grid(
         alpha=0.3
     )
 
 
-axes[-1].set_xlabel(
+axes_ica[-1].set_xlabel(
     "Tiempo (s)"
 )
 
@@ -449,12 +449,12 @@ fig.suptitle(
 )
 
 plt.tight_layout(
-    rect=[0, 0, 1, 0.96]
+    rect=(0.0, 0.0, 1.0, 0.96)
 )
 
 plt.savefig(
     RESULTADOS /
-    f"03_componentes_ICA_{REGISTRO}.png",
+    f"03_componentes_ICA_{REGISTRO}_nuevo.png",
     dpi=300,
     bbox_inches="tight"
 )
@@ -497,7 +497,7 @@ plt.tight_layout()
 
 plt.savefig(
     RESULTADOS /
-    f"04_fECG_aislado_{REGISTRO}.png",
+    f"04_fECG_aislado_{REGISTRO}_nuevo.png",
     dpi=300,
     bbox_inches="tight"
 )
@@ -539,7 +539,7 @@ print(
 #     EXACTAMENTE COMO ESTÁN EN fqrs_detector.py
 # ============================================================
 
-from scipy.signal import butter, filtfilt, find_peaks
+from scipy.signal import butter, filtfilt, find_peaks  # type: ignore
 
 
 # ------------------------------------------------------------
@@ -739,12 +739,12 @@ fig.suptitle(
 )
 
 plt.tight_layout(
-    rect=[0, 0, 1, 0.95]
+    rect=(0.0, 0.0, 1.0, 0.95)
 )
 
 plt.savefig(
     RESULTADOS /
-    f"05_filtro_pan_tompkins_{REGISTRO}.png",
+    f"05_filtro_pan_tompkins_{REGISTRO}_nuevo.png",
     dpi=300,
     bbox_inches="tight"
 )
@@ -787,7 +787,7 @@ plt.tight_layout()
 
 plt.savefig(
     RESULTADOS /
-    f"06_derivada_{REGISTRO}.png",
+    f"06_derivada_{REGISTRO}_nuevo.png",
     dpi=300,
     bbox_inches="tight"
 )
@@ -830,7 +830,7 @@ plt.tight_layout()
 
 plt.savefig(
     RESULTADOS /
-    f"07_elevacion_cuadrado_{REGISTRO}.png",
+    f"07_elevacion_cuadrado_{REGISTRO}_nuevo.png",
     dpi=300,
     bbox_inches="tight"
 )
@@ -873,7 +873,7 @@ plt.tight_layout()
 
 plt.savefig(
     RESULTADOS /
-    f"08_integracion_{REGISTRO}.png",
+    f"08_integracion_{REGISTRO}_nuevo.png",
     dpi=300,
     bbox_inches="tight"
 )
@@ -938,7 +938,7 @@ plt.tight_layout()
 
 plt.savefig(
     RESULTADOS /
-    f"09_candidatos_qrs_{REGISTRO}.png",
+    f"09_candidatos_qrs_{REGISTRO}_nuevo.png",
     dpi=300,
     bbox_inches="tight"
 )
@@ -1010,12 +1010,174 @@ plt.tight_layout()
 
 plt.savefig(
     RESULTADOS /
-    f"10_fQRS_finales_{REGISTRO}.png",
+    f"10_fQRS_finales_{REGISTRO}_nuevo.png",
     dpi=300,
     bbox_inches="tight"
 )
 
 plt.show()
+
+
+# ============================================================
+# ============================================================
+#              PARTE E
+#    CARACTERIZACIÓN Y TIEMPO-FRECUENCIA (NUEVAS MÉTRICAS)
+# ============================================================
+# ============================================================
+
+print("\n")
+print("=" * 70)
+print("PARTE E — EXTRACCIÓN DE NUEVAS CARACTERÍSTICAS (TIEMPO, ENERGÍA, FORMA, STFT)")
+print("=" * 70)
+
+from scipy import signal as sp_signal  # type: ignore
+
+# Evaluar el registro completo (60 s) para tener resolución suficiente de STFT y distribución RR
+picos_full = extraer_fqrs_optimo(signals, fs=fs)
+rr_ms_full = calcular_tacograma_rr(picos_full, fs=fs)
+feats_full = extraer_vector_caracteristicas_completo(picos_full, fs=fs)
+
+print("\nResumen de Nuevas Características Extraídas (Registro completo):")
+for clave in [
+    "BPM_mean", "SDNN", "RR_variance", "RR_min", "RR_max", "RR_range",
+    "Signal_Energy", "Signal_Power", "RR_skewness", "RR_kurtosis",
+    "STFT_Power_Mean", "STFT_Power_Var", "STFT_LF_HF_Mean", "STFT_Spectral_Entropy",
+]:
+    print(f"  - {clave:24s}: {feats_full.get(clave, 0.0):.4f}")
+
+if len(rr_ms_full) >= 15:
+    # ------------------------------------------------------------
+    # GRÁFICA 11 — DISTRIBUCIÓN RR, ESTADÍSTICAS Y FORMA (ASIMETRÍA / CURTOSIS)
+    # ------------------------------------------------------------
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5.5))
+
+    t_rr = np.cumsum(rr_ms_full) / 1000.0
+    axes[0].plot(t_rr, rr_ms_full, marker="o", markersize=3, linewidth=1.2, color="#1f77b4", label="Intervalo RR (ms)")
+    axes[0].axhline(feats_full["RR_min"], color="#2ca02c", linestyle="--", linewidth=1.2, label=f"RR_min = {feats_full['RR_min']:.1f} ms")
+    axes[0].axhline(feats_full["RR_max"], color="#d62728", linestyle="--", linewidth=1.2, label=f"RR_max = {feats_full['RR_max']:.1f} ms")
+    axes[0].fill_between(t_rr, feats_full["RR_min"], feats_full["RR_max"], color="#ff7f0e", alpha=0.08, label=f"RR_range = {feats_full['RR_range']:.1f} ms")
+    axes[0].set_title(f"Tacograma RR — {REGISTRO} (BPM_mean={feats_full['BPM_mean']:.1f})", fontweight="bold")
+    axes[0].set_xlabel("Tiempo (s)")
+    axes[0].set_ylabel("Intervalo RR (ms)")
+    axes[0].legend(fontsize=8.5)
+    axes[0].grid(alpha=0.3)
+
+    axes[1].hist(rr_ms_full, bins=18, density=True, color="#4C72B0", alpha=0.75, edgecolor="black")
+    axes[1].axvline(np.mean(rr_ms_full), color="#d62728", linestyle="-", linewidth=1.5, label=f"Media RR = {np.mean(rr_ms_full):.1f} ms")
+    info_txt = (
+        f"SDNN = {feats_full['SDNN']:.2f} ms\n"
+        f"Varianza = {feats_full['RR_variance']:.2f} ms²\n"
+        f"Asimetría (Skewness) = {feats_full['RR_skewness']:.3f}\n"
+        f"Curtosis (Kurtosis) = {feats_full['RR_kurtosis']:.3f}"
+    )
+    axes[1].text(
+        0.97, 0.95, info_txt, transform=axes[1].transAxes,
+        ha="right", va="top", fontsize=9.5,
+        bbox=dict(boxstyle="round", facecolor="white", alpha=0.85, edgecolor="gray"),
+    )
+    axes[1].set_title("Distribución de Intervalos RR y Forma", fontweight="bold")
+    axes[1].set_xlabel("Intervalo RR (ms)")
+    axes[1].set_ylabel("Densidad")
+    axes[1].legend(loc="upper left", fontsize=8.5)
+    axes[1].grid(alpha=0.3)
+
+    fig.suptitle(f"Estadísticas Básicas y Forma de Distribución — {REGISTRO}", fontsize=15, fontweight="bold")
+    plt.tight_layout(rect=(0.0, 0.0, 1.0, 0.94))
+    plt.savefig(RESULTADOS / f"11_distribucion_rr_forma_{REGISTRO}_nuevo.png", dpi=300, bbox_inches="tight")
+    plt.show()
+
+    # ------------------------------------------------------------
+    # GRÁFICA 12 — ENERGÍA Y POTENCIA PROMEDIO DE VARIACIÓN
+    # ------------------------------------------------------------
+    diff_rr = np.diff(rr_ms_full)
+    energia_inst = diff_rr ** 2
+    energia_acum = np.cumsum(energia_inst)
+
+    fig, axes = plt.subplots(2, 1, figsize=(14, 7.5), sharex=True)
+    idx_lat = np.arange(1, len(energia_inst) + 1)
+
+    axes[0].bar(idx_lat, energia_inst, color="#e67e22", alpha=0.8, label="Energía instantánea |ΔRR[n]|²")
+    axes[0].axhline(feats_full["Signal_Power"], color="#c0392b", linestyle="--", linewidth=1.6,
+                    label=f"Potencia promedio (Signal_Power) = {feats_full['Signal_Power']:.2f} ms²")
+    axes[0].set_title("Potencia Instantánea vs Potencia Promedio Latido a Latido", fontweight="bold")
+    axes[0].set_ylabel("Energía por latido (ms²)")
+    axes[0].legend()
+    axes[0].grid(alpha=0.3)
+
+    axes[1].plot(idx_lat, energia_acum, color="#2c3e50", linewidth=2,
+                 label=f"Energía acumulada total (Signal_Energy) = {feats_full['Signal_Energy']:.1f} ms²")
+    axes[1].fill_between(idx_lat, 0, energia_acum, color="#3498db", alpha=0.15)
+    axes[1].set_title("Energía Total Acumulada de Variabilidad (Signal_Energy)", fontweight="bold")
+    axes[1].set_xlabel("Índice de latido (n)")
+    axes[1].set_ylabel("Energía acumulada (ms²)")
+    axes[1].legend()
+    axes[1].grid(alpha=0.3)
+
+    fig.suptitle(f"Medidas Energéticas de la Señal RR — {REGISTRO}", fontsize=15, fontweight="bold")
+    plt.tight_layout(rect=(0.0, 0.0, 1.0, 0.95))
+    plt.savefig(RESULTADOS / f"12_energia_potencia_senal_{REGISTRO}_nuevo.png", dpi=300, bbox_inches="tight")
+    plt.show()
+
+    # ------------------------------------------------------------
+    # GRÁFICA 13 — DOMINIO TIEMPO-FRECUENCIA (ESPECTROGRAMA STFT)
+    # ------------------------------------------------------------
+    fs_interp = 4.0
+    tiempo_acum = np.cumsum(rr_ms_full) / 1000.0
+    tiempo_rel = tiempo_acum - tiempo_acum[0]
+    t_interp = np.arange(0.0, tiempo_rel[-1], 1.0 / fs_interp)
+
+    if len(t_interp) >= 24:
+        rr_interp = np.asarray(np.interp(t_interp, tiempo_rel, rr_ms_full), dtype=np.float64)
+        rr_detrend = sp_signal.detrend(rr_interp, type="linear")
+        nperseg = max(8, min(len(rr_detrend), int(fs_interp * 16)))
+        noverlap = int(nperseg * 0.75)
+        nfft = max(256, nperseg)
+
+        f_stft, t_stft, zxx = sp_signal.stft(
+            rr_detrend, fs=fs_interp, window="hann",
+            nperseg=nperseg, noverlap=noverlap, nfft=nfft, boundary=None,
+        )
+        potencia_tf = np.abs(zxx) ** 2
+        potencia_db = 10.0 * np.log10(potencia_tf + 1e-12)
+
+        fig, axes = plt.subplots(2, 1, figsize=(14, 8.5), gridspec_kw={"height_ratios": [2.2, 1]})
+        mask_f = f_stft <= 1.0
+        pcm = axes[0].pcolormesh(t_stft, f_stft[mask_f], potencia_db[mask_f, :], shading="gouraud", cmap="viridis")
+        axes[0].axhline(0.04, color="white", linestyle="--", linewidth=1.0, label="Límite VLF/LF (0.04 Hz)")
+        axes[0].axhline(0.20, color="#ffeb3b", linestyle="--", linewidth=1.2, label="Límite LF/HF (0.20 Hz)")
+        axes[0].set_title(f"Espectrograma STFT (Tiempo-Frecuencia) — {REGISTRO}", fontweight="bold")
+        axes[0].set_ylabel("Frecuencia (Hz)")
+        axes[0].legend(loc="upper right", fontsize=8.5)
+        fig.colorbar(pcm, ax=axes[0], label="Potencia Espectral (dB)")
+
+        lf_mask = (f_stft >= 0.04) & (f_stft < 0.20)
+        hf_mask = (f_stft >= 0.20) & (f_stft <= 1.00)
+        lf_t = np.sum(potencia_tf[lf_mask, :], axis=0)
+        hf_t = np.sum(potencia_tf[hf_mask, :], axis=0)
+        ratio_t = lf_t / (hf_t + 1e-8)
+
+        axes[1].plot(t_stft, ratio_t, color="#8e44ad", linewidth=1.8, marker="o", markersize=3,
+                     label=f"Balance LF/HF en el tiempo (Media = {feats_full['STFT_LF_HF_Mean']:.2f})")
+        stft_box = (
+            f"STFT_Power_Mean = {feats_full['STFT_Power_Mean']:.2f}\n"
+            f"STFT_Power_Var = {feats_full['STFT_Power_Var']:.2f}\n"
+            f"STFT_Spectral_Entropy = {feats_full['STFT_Spectral_Entropy']:.3f}"
+        )
+        axes[1].text(
+            0.98, 0.92, stft_box, transform=axes[1].transAxes,
+            ha="right", va="top", fontsize=9,
+            bbox=dict(boxstyle="round", facecolor="white", alpha=0.85, edgecolor="gray"),
+        )
+        axes[1].set_title("Dinámica Temporal del Balance LF/HF (STFT)", fontweight="bold")
+        axes[1].set_xlabel("Tiempo (s)")
+        axes[1].set_ylabel("Ratio LF / HF")
+        axes[1].legend(loc="upper left", fontsize=9)
+        axes[1].grid(alpha=0.3)
+
+        fig.suptitle(f"Análisis Tiempo-Frecuencia STFT — {REGISTRO}", fontsize=15, fontweight="bold")
+        plt.tight_layout(rect=(0.0, 0.0, 1.0, 0.95))
+        plt.savefig(RESULTADOS / f"13_stft_tiempo_frecuencia_{REGISTRO}_nuevo.png", dpi=300, bbox_inches="tight")
+        plt.show()
 
 
 # ============================================================
@@ -1064,7 +1226,7 @@ print(RESULTADOS)
 print("\nArchivos:")
 
 for archivo in sorted(
-    RESULTADOS.glob("*.png")
+    RESULTADOS.glob("*_nuevo.png")
 ):
 
     print(
