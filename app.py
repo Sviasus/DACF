@@ -1,5 +1,7 @@
 import os
 import sys
+import shap
+import matplotlib.pyplot as plt
 import tempfile
 import joblib
 import numpy as np
@@ -398,10 +400,89 @@ if sig_raw is not None:
                 if col_req not in df_feat.columns:
                     df_feat[col_req] = 0.0
             X_mat = np.asarray(df_feat[feature_names].values, dtype=np.float64)
+
             X_scaled = scaler.transform(X_mat)
             prob_patologia = float(modelo.predict_proba(X_scaled)[0, 1])
 
+            # --- RENDERIZADO DE LAS TARJETAS (Mantiene tu código original) ---
             col_diag, col_bpm, col_sdnn, col_ect = st.columns([1.4, 1, 1, 1])
+            with col_diag:
+                if prob_patologia < (umbral_clinico - 0.10):
+                    st.markdown('<div class="status-box-normal">✅ Ritmo Fetal Normal (Control)</div>', unsafe_allow_html=True)
+                    st.caption(f"Probabilidad de arritmia: **{prob_patologia * 100:.1f}%** | Certeza Normal: **{(1 - prob_patologia) * 100:.1f}%**")
+                elif prob_patologia < umbral_clinico:
+                    st.markdown('<div class="status-box-warning">🟡 Observación Clínica (Límite)</div>', unsafe_allow_html=True)
+                    st.caption(f"Probabilidad de arritmia: **{prob_patologia * 100:.1f}%** | Cercano al umbral ({umbral_clinico * 100:.0f}%).")
+                else:
+                    st.markdown('<div class="status-box-alert">⚠️ ALERTA: Patología / Arritmia Fetal</div>', unsafe_allow_html=True)
+                    st.caption(f"Probabilidad de arritmia: **{prob_patologia * 100:.1f}%** | Supera umbral clínico ({umbral_clinico * 100:.0f}%).")
+
+            with col_bpm:
+                st.markdown(f'<div class="metric-card"><div class="metric-title">FC Fetal</div><div class="metric-value">{features_dict.get("BPM_mean", 0):.1f} <span style="font-size: 0.9rem;">bpm</span></div></div>', unsafe_allow_html=True)
+            with col_sdnn:
+                st.markdown(f'<div class="metric-card"><div class="metric-title">SDNN</div><div class="metric-value">{features_dict.get("SDNN", 0):.1f} <span style="font-size: 0.9rem;">ms</span></div></div>', unsafe_allow_html=True)
+            with col_ect:
+                st.markdown(f'<div class="metric-card"><div class="metric-title">Índice Ectopia</div><div class="metric-value">{features_dict.get("Ectopic_Beat_Ratio", 0):.1f} <span style="font-size: 0.9rem;">%</span></div></div>', unsafe_allow_html=True)
+
+            st.markdown("---")
+
+            # --- NUEVA SECCIÓN: EXPLICABILIDAD CLÍNICA CON SHAP ---
+            with st.expander("🧠 ¿Por qué el modelo tomó esta decisión? (Análisis SHAP)"):
+                st.markdown("Este gráfico muestra cómo cada característica del corazón fetal sumó (rojo) o restó (azul) a la probabilidad de predecir una arritmia.")
+                try:
+                    # 1. Extraer el modelo base del calibrador
+                    if hasattr(modelo, "calibrated_classifiers_"):
+                        if hasattr(modelo.calibrated_classifiers_[0], "estimator"):
+                            modelo_base = modelo.calibrated_classifiers_[0].estimator
+                        else:
+                            modelo_base = modelo.calibrated_classifiers_[0].base_estimator
+                    else:
+                        modelo_base = modelo
+                        
+                    # 2. Desempaquetar si hay un VotingClassifier
+                    if type(modelo_base).__name__ == 'VotingClassifier' and hasattr(modelo_base, "estimators_"):
+                        modelo_base = modelo_base.estimators_[0]
+                        
+                    # 3. Inicializar el explicador SHAP con el modelo de árbol puro
+                    explainer = shap.TreeExplainer(modelo_base)
+                    shap_values = explainer.shap_values(X_scaled)
+                    
+                    # 4. Formatear la salida asegurando que sea un vector 1D (solo la clase Patológica)
+                    if isinstance(shap_values, list):
+                        # Si devuelve una lista por clase, tomamos la clase 1 (Arritmia) y la muestra 0
+                        valores_shap_1d = shap_values[1][0]
+                        valor_base = explainer.expected_value[1] if isinstance(explainer.expected_value, list) else explainer.expected_value
+                    else:
+                        # Si devuelve un array numpy
+                        if len(shap_values.shape) == 3:
+                            # Forma (muestras, caracteristicas, clases) -> ej. (1, 26, 2)
+                            valores_shap_1d = shap_values[0, :, 1]
+                        else:
+                            # Forma (muestras, caracteristicas) -> ej. (1, 26)
+                            valores_shap_1d = shap_values[0]
+                            
+                        valor_base = explainer.expected_value
+                        if isinstance(valor_base, (list, np.ndarray)) and len(valor_base) > 1:
+                            valor_base = valor_base[1]
+                    
+                    # 5. Generar el gráfico de cascada (Waterfall)
+                    fig_shap, ax_shap = plt.subplots(figsize=(10, 4))
+                    shap.waterfall_plot(
+                        shap.Explanation(
+                            values=valores_shap_1d, 
+                            base_values=float(valor_base), 
+                            data=X_mat[0],  # Valores clínicos reales, no escalados
+                            feature_names=feature_names
+                        ),
+                        max_display=8,
+                        show=False
+                    )
+                    st.pyplot(fig_shap)
+                    plt.close(fig_shap)
+                    
+                except Exception as e_shap:
+                    st.warning(f"No se pudo generar la explicación SHAP para este modelo. Detalle técnico: {e_shap}")
+           
 
             with col_diag:
                 if prob_patologia < (umbral_clinico - 0.10):
